@@ -1,0 +1,459 @@
+{
+  "manifest_schema_version": 3,
+  "sdk_version": "5.9.13",
+  "app_id": "figma-connector",
+  "version": "1.0.0",
+  "name": "Figma Connector",
+  "description": "Read-only Figma bridge: paste a file or frame URL and Webbee can look up file structure, inspect a specific node's layers and properties, or export a node as PNG/SVG/PDF. Uses your own Figma Personal Access Token — read scope only, no canvas edits.",
+  "icon": "icon.svg",
+  "actions_explicit": true,
+  "system": false,
+  "capabilities": [
+    "figma-connector:read"
+  ],
+  "tools": [
+    {
+      "name": "get_file",
+      "description": "Look up a Figma file's name and page/frame structure from a pasted file URL or file key. Read-only.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "figma_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A Figma file or frame URL, e.g. https://www.figma.com/design/<key>/<name>?node-id=19-207",
+            "title": "Figma Url"
+          },
+          "file_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma file key, if not passing figma_url.",
+            "title": "File Key"
+          }
+        },
+        "title": "GetFileParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "FigmaPage": {
+            "properties": {
+              "id": {
+                "description": "Page node id",
+                "title": "Id",
+                "type": "string"
+              },
+              "name": {
+                "description": "Page name",
+                "title": "Name",
+                "type": "string"
+              },
+              "top_level_frame_count": {
+                "description": "Number of top-level frames/children on this page",
+                "title": "Top Level Frame Count",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "top_level_frame_count"
+            ],
+            "title": "FigmaPage",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "file_key": {
+            "description": "Resolved Figma file key",
+            "title": "File Key",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Figma file name",
+            "title": "File Name",
+            "type": "string"
+          },
+          "last_modified": {
+            "description": "ISO timestamp of last edit",
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "pages": {
+            "description": "Top-level pages in the file",
+            "items": {
+              "$ref": "#/$defs/FigmaPage"
+            },
+            "title": "Pages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_key",
+          "file_name",
+          "last_modified",
+          "pages"
+        ],
+        "title": "GetFileResult",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "figma_connector"
+    },
+    {
+      "name": "get_node",
+      "description": "Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type and direct child layers — text, sizes, vectors. Read-only.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "figma_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A Figma frame URL with ?node-id=..., e.g. https://www.figma.com/design/<key>/<name>?node-id=19-207",
+            "title": "Figma Url"
+          },
+          "file_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma file key, if not embedded in figma_url.",
+            "title": "File Key"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma node id, e.g. '19:207' or '19-207'.",
+            "title": "Node Id"
+          }
+        },
+        "title": "GetNodeParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "FigmaLayer": {
+            "properties": {
+              "id": {
+                "description": "Layer/node id",
+                "title": "Id",
+                "type": "string"
+              },
+              "name": {
+                "description": "Layer name",
+                "title": "Name",
+                "type": "string"
+              },
+              "type": {
+                "description": "Figma node type, e.g. FRAME, TEXT, VECTOR, COMPONENT",
+                "title": "Type",
+                "type": "string"
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Bounding box width in px",
+                "title": "Width"
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Bounding box height in px",
+                "title": "Height"
+              },
+              "characters": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Text content, only present for TEXT layers",
+                "title": "Characters"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "type"
+            ],
+            "title": "FigmaLayer",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "file_key": {
+            "description": "Resolved Figma file key",
+            "title": "File Key",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Resolved Figma node id",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_name": {
+            "description": "Name of the requested node",
+            "title": "Node Name",
+            "type": "string"
+          },
+          "node_type": {
+            "description": "Figma node type of the requested node",
+            "title": "Node Type",
+            "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Node bounding box width in px",
+            "title": "Width"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Node bounding box height in px",
+            "title": "Height"
+          },
+          "layers": {
+            "description": "Direct child layers of the requested node",
+            "items": {
+              "$ref": "#/$defs/FigmaLayer"
+            },
+            "title": "Layers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_key",
+          "node_id",
+          "node_name",
+          "node_type",
+          "layers"
+        ],
+        "title": "GetNodeResult",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "figma_connector"
+    },
+    {
+      "name": "export_image",
+      "description": "Export a specific Figma node as a PNG, SVG, PDF or JPG and return a temporary download URL. Read-only.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "figma_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A Figma frame URL with ?node-id=..., e.g. https://www.figma.com/design/<key>/<name>?node-id=19-207",
+            "title": "Figma Url"
+          },
+          "file_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma file key, if not embedded in figma_url.",
+            "title": "File Key"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma node id, if not embedded in figma_url.",
+            "title": "Node Id"
+          },
+          "format": {
+            "default": "png",
+            "description": "Export format: 'png', 'svg', 'pdf', or 'jpg'.",
+            "title": "Format",
+            "type": "string"
+          },
+          "scale": {
+            "default": 2.0,
+            "description": "Export scale for png/jpg, 0.5-4.0.",
+            "maximum": 4.0,
+            "minimum": 0.5,
+            "title": "Scale",
+            "type": "number"
+          }
+        },
+        "title": "ExportImageParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "properties": {
+          "file_key": {
+            "description": "Resolved Figma file key",
+            "title": "File Key",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Resolved Figma node id",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "format": {
+            "description": "Export format used",
+            "title": "Format",
+            "type": "string"
+          },
+          "image_url": {
+            "description": "Temporary signed URL to the rendered image (Figma-hosted, expires)",
+            "title": "Image Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_key",
+          "node_id",
+          "format",
+          "image_url"
+        ],
+        "title": "ExportImageResult",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "figma_connector"
+    }
+  ],
+  "signals": [],
+  "schedules": [],
+  "required_scopes": [],
+  "icon_size_bytes": 299,
+  "lifecycle": {
+    "health_check": {
+      "interval_sec": 60
+    }
+  },
+  "secrets": [
+    {
+      "name": "figma_api_key",
+      "description": "Figma Personal Access Token (Figma → Settings → Security → Personal access tokens). Read-only 'File content' scope is enough — never grant write scopes here, this extension does not use them.",
+      "required": true,
+      "write_mode": "user",
+      "max_bytes": 512,
+      "scope": "user"
+    }
+  ],
+  "panels": [
+    {
+      "panel_id": "secrets",
+      "slot": "right",
+      "title": "Secrets",
+      "tree": {},
+      "icon": "KeyRound",
+      "refresh": "manual",
+      "center_overlay": false
+    }
+  ],
+  "license": "LGPL-3.0",
+  "category": "Productivity",
+  "tags": [
+    "figma",
+    "design",
+    "read-only",
+    "export",
+    "developer-tools"
+  ]
+}
