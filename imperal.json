@@ -445,10 +445,21 @@
       "icon": "KeyRound",
       "refresh": "manual",
       "center_overlay": false
+    },
+    {
+      "panel_id": "figma_connector_status",
+      "slot": "left",
+      "title": "Figma Connector",
+      "tree": {},
+      "icon": "Figma",
+      "refresh": "manual",
+      "center_overlay": false,
+      "default_width": 320,
+      "min_width": 280
     }
   ],
-  "license": "LGPL-3.0",
   "category": "Productivity",
+  "license": "LGPL-3.0",
   "tags": [
     "figma",
     "design",

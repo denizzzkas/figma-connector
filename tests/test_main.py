@@ -2,17 +2,10 @@
 import pytest
 from imperal_sdk.testing import MockContext, MockSecretStore
 
-from main import (
-    FigmaLookupError,
-    ext,
-    fn_get_file,
-    fn_get_node,
-    fn_export_image,
-    GetFileParams,
-    GetNodeParams,
-    ExportImageParams,
-    _resolve_file_and_node,
-)
+from app import ext
+from figma_client import FigmaLookupError, resolve_file_and_node
+from tools import fn_get_file, fn_get_node, fn_export_image
+from models import GetFileParams, GetNodeParams, ExportImageParams
 
 FILE_URL = "https://www.figma.com/design/FzzvYCgqrorlgu0TakV4Pa/Brand-book?node-id=19-207&t=xyz"
 
@@ -32,14 +25,14 @@ def test_extension_registered():
 
 
 def test_resolve_file_and_node_from_url():
-    file_key, node_id = _resolve_file_and_node(FILE_URL, None, None)
+    file_key, node_id = resolve_file_and_node(FILE_URL, None, None)
     assert file_key == "FzzvYCgqrorlgu0TakV4Pa"
     assert node_id == "19:207"
 
 
 def test_resolve_file_and_node_missing_key_raises():
     with pytest.raises(FigmaLookupError):
-        _resolve_file_and_node(None, None, None)
+        resolve_file_and_node(None, None, None)
 
 
 @pytest.mark.asyncio
