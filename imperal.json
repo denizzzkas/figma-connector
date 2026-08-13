@@ -122,7 +122,7 @@
     },
     {
       "name": "get_node",
-      "description": "Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type and direct child layers — text, sizes, vectors. Read-only.",
+      "description": "Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type, and every direct child layer's real design data — fill colors/gradients, stroke color+weight, shadows/blur effects, corner radius, opacity, and full text typography (font, size, weight, line height, letter spacing, alignment). Pass include_geometry=true to also get exact vector outlines as SVG path data. Read-only.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -167,6 +167,12 @@
             "default": null,
             "description": "Figma node id, e.g. '19:207' or '19-207'.",
             "title": "Node Id"
+          },
+          "include_geometry": {
+            "default": false,
+            "description": "Also fetch resolved vector curves (SVG path data) for VECTOR/BOOLEAN_OPERATION/STAR/LINE/ELLIPSE/POLYGON child layers. Costs one extra Figma API call — leave off unless you actually need the exact curve geometry.",
+            "title": "Include Geometry",
+            "type": "boolean"
           }
         },
         "title": "GetNodeParams",
@@ -174,6 +180,145 @@
       },
       "return_schema": {
         "$defs": {
+          "FigmaColor": {
+            "properties": {
+              "hex": {
+                "description": "Color as '#rrggbb' (or '#rrggbbaa' if alpha < 1)",
+                "title": "Hex",
+                "type": "string"
+              },
+              "r": {
+                "description": "Red channel, 0-1 (raw Figma value)",
+                "title": "R",
+                "type": "number"
+              },
+              "g": {
+                "description": "Green channel, 0-1 (raw Figma value)",
+                "title": "G",
+                "type": "number"
+              },
+              "b": {
+                "description": "Blue channel, 0-1 (raw Figma value)",
+                "title": "B",
+                "type": "number"
+              },
+              "a": {
+                "default": 1.0,
+                "description": "Alpha, 0-1",
+                "title": "A",
+                "type": "number"
+              }
+            },
+            "required": [
+              "hex",
+              "r",
+              "g",
+              "b"
+            ],
+            "title": "FigmaColor",
+            "type": "object"
+          },
+          "FigmaEffect": {
+            "properties": {
+              "type": {
+                "description": "DROP_SHADOW, INNER_SHADOW, LAYER_BLUR, or BACKGROUND_BLUR",
+                "title": "Type",
+                "type": "string"
+              },
+              "visible": {
+                "default": true,
+                "title": "Visible",
+                "type": "boolean"
+              },
+              "radius": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Blur/shadow radius in px",
+                "title": "Radius"
+              },
+              "spread": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Shadow spread in px (shadows only)",
+                "title": "Spread"
+              },
+              "color": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FigmaColor"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Shadow color (shadows only)"
+              },
+              "offset_x": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Shadow x offset in px (shadows only)",
+                "title": "Offset X"
+              },
+              "offset_y": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Shadow y offset in px (shadows only)",
+                "title": "Offset Y"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "title": "FigmaEffect",
+            "type": "object"
+          },
+          "FigmaGradientStop": {
+            "properties": {
+              "position": {
+                "description": "Position along the gradient axis, 0-1",
+                "title": "Position",
+                "type": "number"
+              },
+              "color": {
+                "$ref": "#/$defs/FigmaColor"
+              }
+            },
+            "required": [
+              "position",
+              "color"
+            ],
+            "title": "FigmaGradientStop",
+            "type": "object"
+          },
           "FigmaLayer": {
             "properties": {
               "id": {
@@ -229,6 +374,82 @@
                 "default": null,
                 "description": "Text content, only present for TEXT layers",
                 "title": "Characters"
+              },
+              "opacity": {
+                "default": 1.0,
+                "description": "Layer opacity, 0-1",
+                "title": "Opacity",
+                "type": "number"
+              },
+              "corner_radius": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Uniform corner radius in px, if set",
+                "title": "Corner Radius"
+              },
+              "fills": {
+                "description": "Fill paints (solid color or gradient)",
+                "items": {
+                  "$ref": "#/$defs/FigmaPaint"
+                },
+                "title": "Fills",
+                "type": "array"
+              },
+              "strokes": {
+                "description": "Stroke paints",
+                "items": {
+                  "$ref": "#/$defs/FigmaPaint"
+                },
+                "title": "Strokes",
+                "type": "array"
+              },
+              "stroke_weight": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Stroke thickness in px",
+                "title": "Stroke Weight"
+              },
+              "effects": {
+                "description": "Shadows and blurs",
+                "items": {
+                  "$ref": "#/$defs/FigmaEffect"
+                },
+                "title": "Effects",
+                "type": "array"
+              },
+              "text_style": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FigmaTextStyle"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Typography, only present for TEXT layers"
+              },
+              "fill_geometry_svg_paths": {
+                "description": "Resolved outline as SVG path 'd' strings — only populated when include_geometry=True and the layer has vector geometry",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Fill Geometry Svg Paths",
+                "type": "array"
               }
             },
             "required": [
@@ -237,6 +458,172 @@
               "type"
             ],
             "title": "FigmaLayer",
+            "type": "object"
+          },
+          "FigmaPaint": {
+            "properties": {
+              "type": {
+                "description": "SOLID, GRADIENT_LINEAR, GRADIENT_RADIAL, GRADIENT_ANGULAR, GRADIENT_DIAMOND, IMAGE, or PATTERN",
+                "title": "Type",
+                "type": "string"
+              },
+              "visible": {
+                "default": true,
+                "title": "Visible",
+                "type": "boolean"
+              },
+              "opacity": {
+                "default": 1.0,
+                "description": "Paint opacity, 0-1",
+                "title": "Opacity",
+                "type": "number"
+              },
+              "color": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FigmaColor"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Solid color, only for type=SOLID"
+              },
+              "gradient_stops": {
+                "description": "Color stops, only for gradient types",
+                "items": {
+                  "$ref": "#/$defs/FigmaGradientStop"
+                },
+                "title": "Gradient Stops",
+                "type": "array"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "title": "FigmaPaint",
+            "type": "object"
+          },
+          "FigmaTextStyle": {
+            "properties": {
+              "font_family": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Font Family"
+              },
+              "font_weight": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Numeric font weight, e.g. 400, 700",
+                "title": "Font Weight"
+              },
+              "font_size": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Font size in px",
+                "title": "Font Size"
+              },
+              "line_height_px": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Line Height Px"
+              },
+              "letter_spacing": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Space between characters in px",
+                "title": "Letter Spacing"
+              },
+              "text_align_horizontal": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "LEFT, CENTER, RIGHT, or JUSTIFIED",
+                "title": "Text Align Horizontal"
+              },
+              "text_align_vertical": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "TOP, CENTER, or BOTTOM",
+                "title": "Text Align Vertical"
+              },
+              "text_case": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "ORIGINAL, UPPER, LOWER, or TITLE",
+                "title": "Text Case"
+              },
+              "text_decoration": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "NONE, UNDERLINE, or STRIKETHROUGH",
+                "title": "Text Decoration"
+              }
+            },
+            "title": "FigmaTextStyle",
             "type": "object"
           }
         },
@@ -457,14 +844,5 @@
       "default_width": 320,
       "min_width": 280
     }
-  ],
-  "category": "Productivity",
-  "license": "LGPL-3.0",
-  "tags": [
-    "figma",
-    "design",
-    "read-only",
-    "export",
-    "developer-tools"
   ]
 }

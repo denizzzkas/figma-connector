@@ -8,19 +8,89 @@ from figma_client import FigmaLookupError, figma_get, resolve_file_and_node
 from models import (
     ExportImageParams,
     ExportImageResult,
+    FigmaColor,
+    FigmaEffect,
+    FigmaGradientStop,
     FigmaLayer,
     FigmaPage,
+    FigmaPaint,
+    FigmaTextStyle,
     GetFileParams,
     GetFileResult,
     GetNodeParams,
     GetNodeResult,
 )
 
+# Node types that can carry resolved vector outlines via geometry=paths.
+_VECTOR_LIKE_TYPES = {
+    "VECTOR", "BOOLEAN_OPERATION", "STAR", "LINE", "ELLIPSE", "POLYGON", "RECTANGLE",
+}
 
-def _flatten_direct_children(node: dict) -> list[FigmaLayer]:
+
+def _parse_color(c: dict | None) -> FigmaColor | None:
+    if not c:
+        return None
+    r, g, b = c.get("r", 0.0), c.get("g", 0.0), c.get("b", 0.0)
+    a = c.get("a", 1.0)
+    hex_str = "#{:02x}{:02x}{:02x}".format(
+        round(max(0.0, min(1.0, r)) * 255),
+        round(max(0.0, min(1.0, g)) * 255),
+        round(max(0.0, min(1.0, b)) * 255),
+    )
+    if a < 1.0:
+        hex_str += "{:02x}".format(round(max(0.0, min(1.0, a)) * 255))
+    return FigmaColor(hex=hex_str, r=r, g=g, b=b, a=a)
+
+
+def _parse_paint(p: dict) -> FigmaPaint:
+    stops = [
+        FigmaGradientStop(position=s.get("position", 0.0), color=_parse_color(s.get("color")) or FigmaColor(hex="#000000", r=0, g=0, b=0, a=1))
+        for s in (p.get("gradientStops") or [])
+    ]
+    return FigmaPaint(
+        type=p.get("type", "SOLID"),
+        visible=p.get("visible", True),
+        opacity=p.get("opacity", 1.0),
+        color=_parse_color(p.get("color")),
+        gradient_stops=stops,
+    )
+
+
+def _parse_effect(e: dict) -> FigmaEffect:
+    offset = e.get("offset") or {}
+    return FigmaEffect(
+        type=e.get("type", ""),
+        visible=e.get("visible", True),
+        radius=e.get("radius"),
+        spread=e.get("spread"),
+        color=_parse_color(e.get("color")),
+        offset_x=offset.get("x"),
+        offset_y=offset.get("y"),
+    )
+
+
+def _parse_text_style(style: dict) -> FigmaTextStyle:
+    return FigmaTextStyle(
+        font_family=style.get("fontFamily"),
+        font_weight=style.get("fontWeight"),
+        font_size=style.get("fontSize"),
+        line_height_px=style.get("lineHeightPx"),
+        letter_spacing=style.get("letterSpacing"),
+        text_align_horizontal=style.get("textAlignHorizontal"),
+        text_align_vertical=style.get("textAlignVertical"),
+        text_case=style.get("textCase"),
+        text_decoration=style.get("textDecoration"),
+    )
+
+
+def _flatten_direct_children(
+    node: dict, geometry_by_id: dict[str, list[str]] | None = None
+) -> list[FigmaLayer]:
+    geometry_by_id = geometry_by_id or {}
     out = []
     for child in node.get("children", []) or []:
         box = child.get("absoluteBoundingBox") or {}
+        style = child.get("style")
         out.append(FigmaLayer(
             id=child.get("id", ""),
             name=child.get("name", ""),
@@ -28,8 +98,22 @@ def _flatten_direct_children(node: dict) -> list[FigmaLayer]:
             width=box.get("width"),
             height=box.get("height"),
             characters=child.get("characters"),
+            opacity=child.get("opacity", 1.0),
+            corner_radius=child.get("cornerRadius"),
+            fills=[_parse_paint(p) for p in (child.get("fills") or []) if isinstance(p, dict)],
+            strokes=[_parse_paint(p) for p in (child.get("strokes") or []) if isinstance(p, dict)],
+            stroke_weight=child.get("strokeWeight"),
+            effects=[_parse_effect(e) for e in (child.get("effects") or []) if isinstance(e, dict)],
+            text_style=_parse_text_style(style) if style else None,
+            fill_geometry_svg_paths=geometry_by_id.get(child.get("id", ""), []),
         ))
     return out
+
+
+def _extract_svg_paths(geometry_node: dict) -> list[str]:
+    """Pull SVG path 'd' strings out of a node's fillGeometry (from geometry=paths)."""
+    paths = geometry_node.get("fillGeometry") or []
+    return [p.get("path", "") for p in paths if isinstance(p, dict) and p.get("path")]
 
 
 @chat.function(
@@ -71,10 +155,16 @@ async def fn_get_file(ctx, params: GetFileParams) -> ActionResult:
     "get_node",
     action_type="read",
     data_model=GetNodeResult,
-    description="Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type and direct child layers — text, sizes, vectors. Read-only.",
+    description=(
+        "Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type, and "
+        "every direct child layer's real design data — fill colors/gradients, stroke color+weight, "
+        "shadows/blur effects, corner radius, opacity, and full text typography (font, size, weight, "
+        "line height, letter spacing, alignment). Pass include_geometry=true to also get exact vector "
+        "outlines as SVG path data. Read-only."
+    ),
 )
 async def fn_get_node(ctx, params: GetNodeParams) -> ActionResult:
-    """Fetch a single node subtree via /files/{key}/nodes?ids=..."""
+    """Fetch a single node subtree via /files/{key}/nodes?ids=..., optionally with geometry=paths."""
     try:
         file_key, node_id = resolve_file_and_node(params.figma_url, params.file_key, params.node_id)
         if not node_id:
@@ -90,6 +180,23 @@ async def fn_get_node(ctx, params: GetNodeParams) -> ActionResult:
                 f"Node {node_id} not found in file {file_key}. Check the node-id in the URL.",
                 code="FIGMA_NOT_FOUND",
             )
+
+        geometry_by_id: dict[str, list[str]] = {}
+        if params.include_geometry:
+            doc_children = entry["document"].get("children", []) or []
+            vector_ids = [c.get("id", "") for c in doc_children if c.get("type") in _VECTOR_LIKE_TYPES]
+            if vector_ids:
+                geo_data = await figma_get(
+                    ctx, f"/files/{file_key}/nodes",
+                    params={"ids": ",".join(vector_ids), "geometry": "paths"},
+                )
+                geo_nodes = geo_data.get("nodes", {})
+                for vid in vector_ids:
+                    geo_entry = geo_nodes.get(vid) or {}
+                    geo_doc = geo_entry.get("document") or {}
+                    paths = _extract_svg_paths(geo_doc)
+                    if paths:
+                        geometry_by_id[vid] = paths
     except FigmaLookupError as e:
         return ActionResult.error(e.message, retryable=e.retryable, code=e.code)
 
@@ -102,7 +209,7 @@ async def fn_get_node(ctx, params: GetNodeParams) -> ActionResult:
         node_type=doc.get("type", ""),
         width=box.get("width"),
         height=box.get("height"),
-        layers=_flatten_direct_children(doc),
+        layers=_flatten_direct_children(doc, geometry_by_id),
     )
     return ActionResult.success(
         data=result,
