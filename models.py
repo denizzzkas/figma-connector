@@ -99,12 +99,22 @@ class GetNodeParams(BaseModel):
             "unless you actually need the exact curve geometry."
         ),
     )
+    max_depth: int = Field(
+        default=1, ge=1, le=8,
+        description=(
+            "How many levels deep to walk into nested children. 1 = only direct children "
+            "(default, matches old behaviour). Raise this to see layers nested inside groups/"
+            "components/auto-layout frames, e.g. an icon inside a button inside a card."
+        ),
+    )
 
 
 class FigmaLayer(BaseModel):
     id: str = Field(description="Layer/node id")
     name: str = Field(description="Layer name")
     type: str = Field(description="Figma node type, e.g. FRAME, TEXT, VECTOR, COMPONENT")
+    depth: int = Field(default=1, description="Nesting depth relative to the requested node (1 = direct child)")
+    parent_path: str = Field(default="", description="Ancestor layer names joined by ' > ', e.g. 'Card > Button'")
     width: Optional[float] = Field(default=None, description="Bounding box width in px")
     height: Optional[float] = Field(default=None, description="Bounding box height in px")
     characters: Optional[str] = Field(default=None, description="Text content, only present for TEXT layers")
@@ -152,3 +162,74 @@ class ExportImageResult(BaseModel):
     node_id: str = Field(description="Resolved Figma node id")
     format: str = Field(description="Export format used")
     image_url: str = Field(description="Temporary signed URL to the rendered image (Figma-hosted, expires)")
+
+
+# ---------------------------------------------------------------------------
+# list_styles — enumerate named design tokens (colors/text/effects/grids)
+# ---------------------------------------------------------------------------
+
+class FileScopedParams(BaseModel):
+    figma_url: Optional[str] = Field(
+        default=None, description="A Figma file URL, e.g. https://www.figma.com/design/<key>/<name>",
+    )
+    file_key: Optional[str] = Field(default=None, description="Figma file key, if not passing figma_url.")
+
+
+class FigmaStyleInfo(BaseModel):
+    style_id: str = Field(description="Style node id (usable as a node_id with get_node)")
+    name: str = Field(description="Style name, e.g. 'Navy/900' or 'Heading/H1'")
+    style_type: str = Field(description="FILL, TEXT, EFFECT, or GRID")
+    description: str = Field(default="", description="Author-written description, if any")
+
+
+class ListStylesResult(BaseModel):
+    file_key: str = Field(description="Resolved Figma file key")
+    styles: list[FigmaStyleInfo] = Field(description="Every named local style defined in the file")
+
+
+# ---------------------------------------------------------------------------
+# list_components — enumerate reusable components / component sets
+# ---------------------------------------------------------------------------
+
+class FigmaComponentInfo(BaseModel):
+    component_id: str = Field(description="Component node id (usable as a node_id with get_node)")
+    name: str = Field(description="Component name")
+    description: str = Field(default="", description="Author-written description, if any")
+    component_set_id: Optional[str] = Field(default=None, description="Parent component set id, if this is a variant")
+
+
+class ListComponentsResult(BaseModel):
+    file_key: str = Field(description="Resolved Figma file key")
+    components: list[FigmaComponentInfo] = Field(description="Every reusable component defined in the file")
+
+
+# ---------------------------------------------------------------------------
+# get_comments — read-only feedback/annotations left on the file
+# ---------------------------------------------------------------------------
+
+class FigmaComment(BaseModel):
+    comment_id: str = Field(description="Comment id")
+    message: str = Field(description="Comment text")
+    author: str = Field(default="", description="Display name of whoever wrote it")
+    created_at: str = Field(default="", description="ISO timestamp")
+    resolved: bool = Field(default=False, description="Whether the comment thread is marked resolved")
+    node_id: Optional[str] = Field(default=None, description="Node this comment is pinned to, if positioned on a layer")
+
+
+class GetCommentsResult(BaseModel):
+    file_key: str = Field(description="Resolved Figma file key")
+    comments: list[FigmaComment] = Field(description="All comments on the file, unresolved and resolved")
+
+
+# ---------------------------------------------------------------------------
+# get_image_fills — real bitmap assets (photos/textures) used as fills
+# ---------------------------------------------------------------------------
+
+class FigmaImageFill(BaseModel):
+    image_ref: str = Field(description="Figma's internal image reference id")
+    url: str = Field(description="Temporary signed download URL for the original bitmap (expires)")
+
+
+class GetImageFillsResult(BaseModel):
+    file_key: str = Field(description="Resolved Figma file key")
+    images: list[FigmaImageFill] = Field(description="Every distinct bitmap image used as a fill anywhere in the file")

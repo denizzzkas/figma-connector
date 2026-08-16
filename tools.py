@@ -1,4 +1,8 @@
-"""Figma Connector — chat-function tools: get_file, get_node, export_image."""
+"""Figma Connector — chat-function tools: get_file, get_node, export_image (single-node scope).
+
+File-wide/library-scoped tools (list_styles, list_components, get_comments,
+get_image_fills) live in tools_library.py — see main.py for the module map.
+"""
 from __future__ import annotations
 
 from imperal_sdk import ActionResult
@@ -84,10 +88,22 @@ def _parse_text_style(style: dict) -> FigmaTextStyle:
 
 
 def _flatten_direct_children(
-    node: dict, geometry_by_id: dict[str, list[str]] | None = None
+    node: dict,
+    geometry_by_id: dict[str, list[str]] | None = None,
+    max_depth: int = 1,
+    _depth: int = 1,
+    _parent_path: str = "",
 ) -> list[FigmaLayer]:
+    """Walk `node`'s children up to `max_depth` levels, flattening into one list.
+
+    depth=1 (the default) reproduces the original behaviour exactly: only
+    direct children, with depth=1 and empty parent_path. Raising max_depth
+    recurses into each child's own children too (groups, auto-layout
+    frames, component instances), tagging each layer with how deep it is
+    and the chain of ancestor names so nested layers stay identifiable.
+    """
     geometry_by_id = geometry_by_id or {}
-    out = []
+    out: list[FigmaLayer] = []
     for child in node.get("children", []) or []:
         box = child.get("absoluteBoundingBox") or {}
         style = child.get("style")
@@ -95,6 +111,8 @@ def _flatten_direct_children(
             id=child.get("id", ""),
             name=child.get("name", ""),
             type=child.get("type", ""),
+            depth=_depth,
+            parent_path=_parent_path,
             width=box.get("width"),
             height=box.get("height"),
             characters=child.get("characters"),
@@ -107,6 +125,11 @@ def _flatten_direct_children(
             text_style=_parse_text_style(style) if style else None,
             fill_geometry_svg_paths=geometry_by_id.get(child.get("id", ""), []),
         ))
+        if _depth < max_depth and child.get("children"):
+            next_path = f"{_parent_path} > {child.get('name', '')}" if _parent_path else child.get("name", "")
+            out.extend(_flatten_direct_children(
+                child, geometry_by_id, max_depth=max_depth, _depth=_depth + 1, _parent_path=next_path,
+            ))
     return out
 
 
@@ -114,6 +137,21 @@ def _extract_svg_paths(geometry_node: dict) -> list[str]:
     """Pull SVG path 'd' strings out of a node's fillGeometry (from geometry=paths)."""
     paths = geometry_node.get("fillGeometry") or []
     return [p.get("path", "") for p in paths if isinstance(p, dict) and p.get("path")]
+
+
+def _collect_all_descendants(node: dict, max_depth: int, _depth: int = 1) -> list[dict]:
+    """Flatten every descendant dict (not just direct children) up to max_depth levels.
+
+    Used only to gather candidate node ids (e.g. for a geometry=paths follow-up
+    call) once max_depth > 1 — the display layers themselves are still built by
+    _flatten_direct_children, which tracks depth/parent_path independently.
+    """
+    out: list[dict] = []
+    for child in node.get("children", []) or []:
+        out.append(child)
+        if _depth < max_depth and child.get("children"):
+            out.extend(_collect_all_descendants(child, max_depth, _depth + 1))
+    return out
 
 
 @chat.function(
@@ -157,10 +195,11 @@ async def fn_get_file(ctx, params: GetFileParams) -> ActionResult:
     data_model=GetNodeResult,
     description=(
         "Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type, and "
-        "every direct child layer's real design data — fill colors/gradients, stroke color+weight, "
+        "every child layer's real design data — fill colors/gradients, stroke color+weight, "
         "shadows/blur effects, corner radius, opacity, and full text typography (font, size, weight, "
-        "line height, letter spacing, alignment). Pass include_geometry=true to also get exact vector "
-        "outlines as SVG path data. Read-only."
+        "line height, letter spacing, alignment). Pass max_depth>1 to also see layers nested inside "
+        "groups/auto-layout frames/component instances (each tagged with its depth and parent_path). "
+        "Pass include_geometry=true to also get exact vector outlines as SVG path data. Read-only."
     ),
 )
 async def fn_get_node(ctx, params: GetNodeParams) -> ActionResult:
@@ -184,6 +223,8 @@ async def fn_get_node(ctx, params: GetNodeParams) -> ActionResult:
         geometry_by_id: dict[str, list[str]] = {}
         if params.include_geometry:
             doc_children = entry["document"].get("children", []) or []
+            if params.max_depth > 1:
+                doc_children = _collect_all_descendants(entry["document"], params.max_depth)
             vector_ids = [c.get("id", "") for c in doc_children if c.get("type") in _VECTOR_LIKE_TYPES]
             if vector_ids:
                 geo_data = await figma_get(
@@ -209,11 +250,11 @@ async def fn_get_node(ctx, params: GetNodeParams) -> ActionResult:
         node_type=doc.get("type", ""),
         width=box.get("width"),
         height=box.get("height"),
-        layers=_flatten_direct_children(doc, geometry_by_id),
+        layers=_flatten_direct_children(doc, geometry_by_id, max_depth=params.max_depth),
     )
     return ActionResult.success(
         data=result,
-        summary=f"'{result.node_name}' ({result.node_type}) — {len(result.layers)} direct layer(s).",
+        summary=f"'{result.node_name}' ({result.node_type}) — {len(result.layers)} layer(s) across up to {params.max_depth} level(s).",
     )
 
 

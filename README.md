@@ -16,8 +16,8 @@ this extension is intentionally read-only.
 - **`get_file`** — file name, last-modified date, and every page with its
   top-level frame count.
 - **`get_node`** — a specific frame/node by URL or node-id: name, type,
-  bounding box, and its immediate child layers, each with **full visual
-  detail**, not just name/size:
+  bounding box, and its child layers, each with **full visual detail**, not
+  just name/size:
   - **Colors** — every fill and stroke, resolved to real hex + RGBA (solid
     colors and gradient stops alike), plus opacity and corner radius.
   - **Shadows & blur** — every effect (drop shadow, inner shadow, layer
@@ -27,10 +27,28 @@ this extension is intentionally read-only.
   - **Vector curves** — pass `include_geometry=true` to get each vector
     layer's outline as real SVG path data (Figma's `geometry=paths` mode),
     so the actual curve shape is inspectable, not just its bounding box.
+  - **Nesting** — pass `max_depth` (up to 8) to walk into groups,
+    auto-layout frames and component instances, not just direct children;
+    each returned layer is tagged with its `depth` and `parent_path` so
+    nested layers (e.g. an icon inside a button inside a card) stay
+    identifiable.
 - **`export_image`** — export a node as PNG, JPG, SVG or PDF; returns a
   temporary download URL.
+- **`list_styles`** — every named local style (design token) published in
+  the file: color/fill styles, text styles, effect styles, grid styles —
+  by name, e.g. `Navy/900`, `Heading/H1`. Lets Webbee talk about the
+  design system's real palette/type-scale by name, not just raw hex pulled
+  off one layer.
+- **`list_components`** — every reusable component defined in the file:
+  name, component key, and which component-set (variant group) it belongs
+  to, if any.
+- **`get_comments`** — every comment thread on the file: author, message,
+  resolved status, and which node/pixel position it's pinned to.
+- **`get_image_fills`** — every embedded bitmap image used as a fill
+  anywhere in the file, resolved to a real downloadable URL (Figma's
+  `imageRef` values otherwise aren't directly usable).
 
-All three tools accept a Figma URL directly — the file key and node-id are
+All tools accept a Figma URL directly — the file key and node-id are
 parsed straight out of the pasted link (`?node-id=19-207` etc.), no manual
 URL surgery needed. You can also pass `file_key` / `node_id` explicitly.
 

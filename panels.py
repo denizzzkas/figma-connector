@@ -44,6 +44,13 @@ async def figma_connector_status_panel(ctx, **params) -> ui.UINode:
 
     return ui.Stack([
         ui.Header("Figma Connector", level=3, subtitle="Read-only Figma REST API bridge"),
+        ui.Text(
+            "Paste any Figma file or frame link in chat and ask Webbee to look "
+            "up the file structure, inspect a frame's colors/fonts/layers, list "
+            "styles or components, read comments, or export it as an image — "
+            "all read-only, nothing on your canvas is ever changed.",
+            variant="caption",
+        ),
         status_alert,
         key_action,
         ui.Link(
@@ -53,8 +60,12 @@ async def figma_connector_status_panel(ctx, **params) -> ui.UINode:
         ui.Divider("Commands"),
         ui.KeyValue([
             {"label": "get_file", "value": "File name, pages, top-level frame counts"},
-            {"label": "get_node", "value": "One frame's size, type & direct child layers"},
+            {"label": "get_node", "value": "One frame's colors, effects, type & layers (max_depth for nesting)"},
             {"label": "export_image", "value": "Render a node as PNG / SVG / PDF / JPG"},
+            {"label": "list_styles", "value": "Named color/text/effect/grid design tokens"},
+            {"label": "list_components", "value": "Every reusable component + its variant set"},
+            {"label": "get_comments", "value": "Comment threads: author, text, resolved, node"},
+            {"label": "get_image_fills", "value": "Downloadable URLs for embedded bitmap fills"},
         ]),
         ui.Divider(),
         ui.Text(

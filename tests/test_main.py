@@ -5,7 +5,18 @@ from imperal_sdk.testing import MockContext, MockSecretStore
 from app import ext
 from figma_client import FigmaLookupError, resolve_file_and_node
 from tools import fn_get_file, fn_get_node, fn_export_image
-from models import GetFileParams, GetNodeParams, ExportImageParams
+from tools_library import (
+    fn_list_styles,
+    fn_list_components,
+    fn_get_comments,
+    fn_get_image_fills,
+)
+from models import (
+    GetFileParams,
+    GetNodeParams,
+    ExportImageParams,
+    FileScopedParams,
+)
 
 FILE_URL = "https://www.figma.com/design/FzzvYCgqrorlgu0TakV4Pa/Brand-book?node-id=19-207&t=xyz"
 
@@ -252,3 +263,124 @@ async def test_export_image_bad_format_errors():
     ctx = _ctx()
     result = await fn_export_image(ctx, ExportImageParams(figma_url=FILE_URL, format="webp"))
     assert result.status == "error"
+
+
+@pytest.mark.asyncio
+async def test_get_node_max_depth_walks_nested_children():
+    """max_depth>1 should recurse into a group's own children, tagging depth/parent_path."""
+    ctx = _ctx()
+    ctx.http.mock_get(
+        "/files/FzzvYCgqrorlgu0TakV4Pa/nodes",
+        {
+            "nodes": {
+                "19:207": {
+                    "document": {
+                        "id": "19:207",
+                        "name": "Card",
+                        "type": "FRAME",
+                        "absoluteBoundingBox": {"width": 300, "height": 100},
+                        "children": [
+                            {
+                                "id": "19:210", "name": "Button", "type": "GROUP",
+                                "absoluteBoundingBox": {"width": 120, "height": 40},
+                                "children": [
+                                    {"id": "19:211", "name": "Icon", "type": "VECTOR",
+                                     "absoluteBoundingBox": {"width": 16, "height": 16}},
+                                ],
+                            },
+                        ],
+                    }
+                }
+            }
+        },
+    )
+    result = await fn_get_node(ctx, GetNodeParams(figma_url=FILE_URL, max_depth=2))
+    assert result.status == "success"
+    assert len(result.data.layers) == 2
+    by_name = {l.name: l for l in result.data.layers}
+    assert by_name["Button"].depth == 1
+    assert by_name["Button"].parent_path == ""
+    assert by_name["Icon"].depth == 2
+    assert by_name["Icon"].parent_path == "Button"
+
+
+@pytest.mark.asyncio
+async def test_list_styles_success():
+    ctx = _ctx()
+    ctx.http.mock_get(
+        "/files/FzzvYCgqrorlgu0TakV4Pa/styles",
+        {
+            "meta": {
+                "styles": [
+                    {"node_id": "1:1", "name": "Navy/900", "style_type": "FILL", "description": "Primary navy"},
+                    {"node_id": "1:2", "name": "Heading/H1", "style_type": "TEXT", "description": ""},
+                ]
+            }
+        },
+    )
+    result = await fn_list_styles(ctx, FileScopedParams(figma_url=FILE_URL))
+    assert result.status == "success"
+    assert len(result.data.styles) == 2
+    assert result.data.styles[0].name == "Navy/900"
+    assert result.data.styles[0].style_type == "FILL"
+
+
+@pytest.mark.asyncio
+async def test_list_components_success():
+    ctx = _ctx()
+    ctx.http.mock_get(
+        "/files/FzzvYCgqrorlgu0TakV4Pa/components",
+        {
+            "meta": {
+                "components": [
+                    {"node_id": "2:1", "name": "Button/Primary", "description": "CTA button",
+                     "component_set_id": "2:0"},
+                ]
+            }
+        },
+    )
+    result = await fn_list_components(ctx, FileScopedParams(figma_url=FILE_URL))
+    assert result.status == "success"
+    assert len(result.data.components) == 1
+    assert result.data.components[0].name == "Button/Primary"
+    assert result.data.components[0].component_set_id == "2:0"
+
+
+@pytest.mark.asyncio
+async def test_get_comments_success():
+    ctx = _ctx()
+    ctx.http.mock_get(
+        "/files/FzzvYCgqrorlgu0TakV4Pa/comments",
+        {
+            "comments": [
+                {
+                    "id": "c1", "message": "Fix the kerning here",
+                    "user": {"handle": "denis"},
+                    "created_at": "2026-08-01T00:00:00Z",
+                    "resolved_at": None,
+                    "client_meta": {"node_id": "19:207"},
+                },
+            ]
+        },
+    )
+    result = await fn_get_comments(ctx, FileScopedParams(figma_url=FILE_URL))
+    assert result.status == "success"
+    assert len(result.data.comments) == 1
+    assert result.data.comments[0].message == "Fix the kerning here"
+    assert result.data.comments[0].author == "denis"
+    assert result.data.comments[0].resolved is False
+    assert result.data.comments[0].node_id == "19:207"
+
+
+@pytest.mark.asyncio
+async def test_get_image_fills_success():
+    ctx = _ctx()
+    ctx.http.mock_get(
+        "/files/FzzvYCgqrorlgu0TakV4Pa/images",
+        {"meta": {"images": {"abc123": "https://figma-alpha-api.s3.amazonaws.com/img.png"}}},
+    )
+    result = await fn_get_image_fills(ctx, FileScopedParams(figma_url=FILE_URL))
+    assert result.status == "success"
+    assert len(result.data.images) == 1
+    assert result.data.images[0].image_ref == "abc123"
+    assert result.data.images[0].url.startswith("https://")

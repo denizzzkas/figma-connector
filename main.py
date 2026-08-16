@@ -11,11 +11,13 @@ heavier integration), never via a plain REST API token. This extension is
 intentionally read-only.
 
 Implementation lives in separate modules (kept under ~300 lines each):
-  - figma_client.py — URL/id resolution + the shared Figma HTTP helper
-  - models.py        — Pydantic params/results for the chat tools
-  - app.py            — Extension/secret/health_check/ChatExtension setup
-  - tools.py          — the three @chat.function handlers
-  - panels.py         — the left-sidebar status panel
+  - figma_client.py    — URL/id resolution + the shared Figma HTTP helper
+  - models.py          — Pydantic params/results for the chat tools
+  - app.py             — Extension/secret/health_check/ChatExtension setup
+  - tools.py           — get_file / get_node / export_image (single-node scope)
+  - tools_library.py   — list_styles / list_components / get_comments /
+                          get_image_fills (file-wide/library scope)
+  - panels.py          — the left-sidebar status panel
 This file just re-exports `ext` and forces a clean module reload so the
 production host never runs a stale cached version after a redeploy.
 """
@@ -27,10 +29,11 @@ import sys
 _dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _dir)
 
-for _m in ("app", "figma_client", "models", "tools", "panels"):
+for _m in ("app", "figma_client", "models", "tools", "tools_library", "panels"):
     if _m in sys.modules:
         del sys.modules[_m]
 
 from app import ext, chat  # noqa: F401
 import tools  # noqa: F401
+import tools_library  # noqa: F401
 import panels  # noqa: F401

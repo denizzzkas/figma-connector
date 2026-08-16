@@ -122,7 +122,7 @@
     },
     {
       "name": "get_node",
-      "description": "Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type, and every direct child layer's real design data — fill colors/gradients, stroke color+weight, shadows/blur effects, corner radius, opacity, and full text typography (font, size, weight, line height, letter spacing, alignment). Pass include_geometry=true to also get exact vector outlines as SVG path data. Read-only.",
+      "description": "Inspect one specific Figma node/frame (by URL or file_key+node_id): its size, type, and every child layer's real design data — fill colors/gradients, stroke color+weight, shadows/blur effects, corner radius, opacity, and full text typography (font, size, weight, line height, letter spacing, alignment). Pass max_depth>1 to also see layers nested inside groups/auto-layout frames/component instances (each tagged with its depth and parent_path). Pass include_geometry=true to also get exact vector outlines as SVG path data. Read-only.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -173,6 +173,14 @@
             "description": "Also fetch resolved vector curves (SVG path data) for VECTOR/BOOLEAN_OPERATION/STAR/LINE/ELLIPSE/POLYGON child layers. Costs one extra Figma API call — leave off unless you actually need the exact curve geometry.",
             "title": "Include Geometry",
             "type": "boolean"
+          },
+          "max_depth": {
+            "default": 1,
+            "description": "How many levels deep to walk into nested children. 1 = only direct children (default, matches old behaviour). Raise this to see layers nested inside groups/components/auto-layout frames, e.g. an icon inside a button inside a card.",
+            "maximum": 8,
+            "minimum": 1,
+            "title": "Max Depth",
+            "type": "integer"
           }
         },
         "title": "GetNodeParams",
@@ -334,6 +342,18 @@
               "type": {
                 "description": "Figma node type, e.g. FRAME, TEXT, VECTOR, COMPONENT",
                 "title": "Type",
+                "type": "string"
+              },
+              "depth": {
+                "default": 1,
+                "description": "Nesting depth relative to the requested node (1 = direct child)",
+                "title": "Depth",
+                "type": "integer"
+              },
+              "parent_path": {
+                "default": "",
+                "description": "Ancestor layer names joined by ' > ', e.g. 'Card > Button'",
+                "title": "Parent Path",
                 "type": "string"
               },
               "width": {
@@ -802,12 +822,434 @@
       "long_running": false,
       "scopes": [],
       "owner_chat_tool": "figma_connector"
+    },
+    {
+      "name": "list_styles",
+      "description": "List every named local style (design token) defined in a Figma file — color/fill styles, text styles, effect styles and grid styles — with their name and style_id. Use this to see the file's real design-system palette/type-scale by name (e.g. 'Navy/900', 'Heading/H1') rather than reading raw hex values off individual layers. Read-only.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "figma_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A Figma file URL, e.g. https://www.figma.com/design/<key>/<name>",
+            "title": "Figma Url"
+          },
+          "file_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma file key, if not passing figma_url.",
+            "title": "File Key"
+          }
+        },
+        "title": "FileScopedParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "FigmaStyleInfo": {
+            "properties": {
+              "style_id": {
+                "description": "Style node id (usable as a node_id with get_node)",
+                "title": "Style Id",
+                "type": "string"
+              },
+              "name": {
+                "description": "Style name, e.g. 'Navy/900' or 'Heading/H1'",
+                "title": "Name",
+                "type": "string"
+              },
+              "style_type": {
+                "description": "FILL, TEXT, EFFECT, or GRID",
+                "title": "Style Type",
+                "type": "string"
+              },
+              "description": {
+                "default": "",
+                "description": "Author-written description, if any",
+                "title": "Description",
+                "type": "string"
+              }
+            },
+            "required": [
+              "style_id",
+              "name",
+              "style_type"
+            ],
+            "title": "FigmaStyleInfo",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "file_key": {
+            "description": "Resolved Figma file key",
+            "title": "File Key",
+            "type": "string"
+          },
+          "styles": {
+            "description": "Every named local style defined in the file",
+            "items": {
+              "$ref": "#/$defs/FigmaStyleInfo"
+            },
+            "title": "Styles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_key",
+          "styles"
+        ],
+        "title": "ListStylesResult",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "figma_connector"
+    },
+    {
+      "name": "list_components",
+      "description": "List every reusable component defined in a Figma file — name, component_id (usable directly as a node_id with get_node), description, and its parent component_set_id if it's a variant. Use this to discover a design system's building blocks (buttons, icons, cards) by name before inspecting one in detail with get_node. Read-only.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "figma_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A Figma file URL, e.g. https://www.figma.com/design/<key>/<name>",
+            "title": "Figma Url"
+          },
+          "file_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma file key, if not passing figma_url.",
+            "title": "File Key"
+          }
+        },
+        "title": "FileScopedParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "FigmaComponentInfo": {
+            "properties": {
+              "component_id": {
+                "description": "Component node id (usable as a node_id with get_node)",
+                "title": "Component Id",
+                "type": "string"
+              },
+              "name": {
+                "description": "Component name",
+                "title": "Name",
+                "type": "string"
+              },
+              "description": {
+                "default": "",
+                "description": "Author-written description, if any",
+                "title": "Description",
+                "type": "string"
+              },
+              "component_set_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Parent component set id, if this is a variant",
+                "title": "Component Set Id"
+              }
+            },
+            "required": [
+              "component_id",
+              "name"
+            ],
+            "title": "FigmaComponentInfo",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "file_key": {
+            "description": "Resolved Figma file key",
+            "title": "File Key",
+            "type": "string"
+          },
+          "components": {
+            "description": "Every reusable component defined in the file",
+            "items": {
+              "$ref": "#/$defs/FigmaComponentInfo"
+            },
+            "title": "Components",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_key",
+          "components"
+        ],
+        "title": "ListComponentsResult",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "figma_connector"
+    },
+    {
+      "name": "get_comments",
+      "description": "Read every comment left on a Figma file — text, author, timestamp, resolved status, and which node (if any) it's pinned to. Use this to see design feedback/annotations without opening Figma. Read-only, requires the file_comments:read scope on the token.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "figma_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A Figma file URL, e.g. https://www.figma.com/design/<key>/<name>",
+            "title": "Figma Url"
+          },
+          "file_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma file key, if not passing figma_url.",
+            "title": "File Key"
+          }
+        },
+        "title": "FileScopedParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "FigmaComment": {
+            "properties": {
+              "comment_id": {
+                "description": "Comment id",
+                "title": "Comment Id",
+                "type": "string"
+              },
+              "message": {
+                "description": "Comment text",
+                "title": "Message",
+                "type": "string"
+              },
+              "author": {
+                "default": "",
+                "description": "Display name of whoever wrote it",
+                "title": "Author",
+                "type": "string"
+              },
+              "created_at": {
+                "default": "",
+                "description": "ISO timestamp",
+                "title": "Created At",
+                "type": "string"
+              },
+              "resolved": {
+                "default": false,
+                "description": "Whether the comment thread is marked resolved",
+                "title": "Resolved",
+                "type": "boolean"
+              },
+              "node_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Node this comment is pinned to, if positioned on a layer",
+                "title": "Node Id"
+              }
+            },
+            "required": [
+              "comment_id",
+              "message"
+            ],
+            "title": "FigmaComment",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "file_key": {
+            "description": "Resolved Figma file key",
+            "title": "File Key",
+            "type": "string"
+          },
+          "comments": {
+            "description": "All comments on the file, unresolved and resolved",
+            "items": {
+              "$ref": "#/$defs/FigmaComment"
+            },
+            "title": "Comments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_key",
+          "comments"
+        ],
+        "title": "GetCommentsResult",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "figma_connector"
+    },
+    {
+      "name": "get_image_fills",
+      "description": "List every distinct bitmap image (photo/texture) used as a fill anywhere in a Figma file, with a temporary download URL for each original file. Use this to pull out real photography/imagery assets a design references, not just vector shapes. Read-only.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "figma_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A Figma file URL, e.g. https://www.figma.com/design/<key>/<name>",
+            "title": "Figma Url"
+          },
+          "file_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Figma file key, if not passing figma_url.",
+            "title": "File Key"
+          }
+        },
+        "title": "FileScopedParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "$defs": {
+          "FigmaImageFill": {
+            "properties": {
+              "image_ref": {
+                "description": "Figma's internal image reference id",
+                "title": "Image Ref",
+                "type": "string"
+              },
+              "url": {
+                "description": "Temporary signed download URL for the original bitmap (expires)",
+                "title": "Url",
+                "type": "string"
+              }
+            },
+            "required": [
+              "image_ref",
+              "url"
+            ],
+            "title": "FigmaImageFill",
+            "type": "object"
+          }
+        },
+        "properties": {
+          "file_key": {
+            "description": "Resolved Figma file key",
+            "title": "File Key",
+            "type": "string"
+          },
+          "images": {
+            "description": "Every distinct bitmap image used as a fill anywhere in the file",
+            "items": {
+              "$ref": "#/$defs/FigmaImageFill"
+            },
+            "title": "Images",
+            "type": "array"
+          }
+        },
+        "required": [
+          "file_key",
+          "images"
+        ],
+        "title": "GetImageFillsResult",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "figma_connector"
     }
   ],
   "signals": [],
   "schedules": [],
   "required_scopes": [],
-  "icon_size_bytes": 299,
+  "icon_size_bytes": 728,
   "lifecycle": {
     "health_check": {
       "interval_sec": 60
