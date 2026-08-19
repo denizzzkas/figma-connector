@@ -1,21 +1,19 @@
-"""Tests for figma-connector extension."""
+"""Tests for figma-connector: get_file / get_node / export_image.
+
+Library-scoped tools (list_styles, list_components, get_comments,
+get_image_fills) are tested in test_tools_library.py — keeps each
+test module under ~300 lines, mirroring the tools.py / tools_library.py split.
+"""
 import pytest
 from imperal_sdk.testing import MockContext, MockSecretStore
 
 from app import ext
 from figma_client import FigmaLookupError, resolve_file_and_node
 from tools import fn_get_file, fn_get_node, fn_export_image
-from tools_library import (
-    fn_list_styles,
-    fn_list_components,
-    fn_get_comments,
-    fn_get_image_fills,
-)
 from models import (
     GetFileParams,
     GetNodeParams,
     ExportImageParams,
-    FileScopedParams,
 )
 
 FILE_URL = "https://www.figma.com/design/FzzvYCgqrorlgu0TakV4Pa/Brand-book?node-id=19-207&t=xyz"
@@ -194,12 +192,10 @@ async def test_get_node_returns_full_style_data():
 
 @pytest.mark.asyncio
 async def test_get_node_include_geometry_fetches_svg_paths(monkeypatch):
-    """include_geometry=True should make a second Figma call with geometry=paths and attach the curves.
+    """include_geometry=True makes a second call with geometry=paths.
 
-    MockHTTP matches purely by URL substring (it ignores query params), so it
-    can't tell apart two calls to the same /nodes path with different `ids`/
-    `geometry` params. We monkeypatch tools.figma_get directly instead, which
-    also lets us assert the exact params fn_get_node sends on each call.
+    MockHTTP matches purely by URL substring, so we monkeypatch
+    tools.figma_get directly to assert exact per-call params.
     """
     calls: list[dict] = []
 
@@ -302,85 +298,3 @@ async def test_get_node_max_depth_walks_nested_children():
     assert by_name["Button"].parent_path == ""
     assert by_name["Icon"].depth == 2
     assert by_name["Icon"].parent_path == "Button"
-
-
-@pytest.mark.asyncio
-async def test_list_styles_success():
-    ctx = _ctx()
-    ctx.http.mock_get(
-        "/files/FzzvYCgqrorlgu0TakV4Pa/styles",
-        {
-            "meta": {
-                "styles": [
-                    {"node_id": "1:1", "name": "Navy/900", "style_type": "FILL", "description": "Primary navy"},
-                    {"node_id": "1:2", "name": "Heading/H1", "style_type": "TEXT", "description": ""},
-                ]
-            }
-        },
-    )
-    result = await fn_list_styles(ctx, FileScopedParams(figma_url=FILE_URL))
-    assert result.status == "success"
-    assert len(result.data.styles) == 2
-    assert result.data.styles[0].name == "Navy/900"
-    assert result.data.styles[0].style_type == "FILL"
-
-
-@pytest.mark.asyncio
-async def test_list_components_success():
-    ctx = _ctx()
-    ctx.http.mock_get(
-        "/files/FzzvYCgqrorlgu0TakV4Pa/components",
-        {
-            "meta": {
-                "components": [
-                    {"node_id": "2:1", "name": "Button/Primary", "description": "CTA button",
-                     "component_set_id": "2:0"},
-                ]
-            }
-        },
-    )
-    result = await fn_list_components(ctx, FileScopedParams(figma_url=FILE_URL))
-    assert result.status == "success"
-    assert len(result.data.components) == 1
-    assert result.data.components[0].name == "Button/Primary"
-    assert result.data.components[0].component_set_id == "2:0"
-
-
-@pytest.mark.asyncio
-async def test_get_comments_success():
-    ctx = _ctx()
-    ctx.http.mock_get(
-        "/files/FzzvYCgqrorlgu0TakV4Pa/comments",
-        {
-            "comments": [
-                {
-                    "id": "c1", "message": "Fix the kerning here",
-                    "user": {"handle": "denis"},
-                    "created_at": "2026-08-01T00:00:00Z",
-                    "resolved_at": None,
-                    "client_meta": {"node_id": "19:207"},
-                },
-            ]
-        },
-    )
-    result = await fn_get_comments(ctx, FileScopedParams(figma_url=FILE_URL))
-    assert result.status == "success"
-    assert len(result.data.comments) == 1
-    assert result.data.comments[0].message == "Fix the kerning here"
-    assert result.data.comments[0].author == "denis"
-    assert result.data.comments[0].resolved is False
-    assert result.data.comments[0].node_id == "19:207"
-
-
-@pytest.mark.asyncio
-async def test_get_image_fills_success():
-    ctx = _ctx()
-    ctx.http.mock_get(
-        "/files/FzzvYCgqrorlgu0TakV4Pa/images",
-        {"meta": {"images": {"abc123": "https://figma-alpha-api.s3.amazonaws.com/img.png"}}},
-    )
-    result = await fn_get_image_fills(ctx, FileScopedParams(figma_url=FILE_URL))
-    assert result.status == "success"
-    assert len(result.data.images) == 1
-    assert result.data.images[0].image_ref == "abc123"
-    assert result.data.images[0].url.startswith("https://")

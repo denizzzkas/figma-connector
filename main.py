@@ -29,7 +29,7 @@ import sys
 _dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _dir)
 
-for _m in ("app", "figma_client", "models", "tools", "tools_library", "panels"):
+for _m in ("app", "figma_client", "models", "figma_parse", "tools", "tools_library", "panels"):
     if _m in sys.modules:
         del sys.modules[_m]
 
